@@ -393,7 +393,7 @@ def reset_password(new=None):
     cfg.update(password=hash_pw(new or DEFAULT_PASSWORD), must_change=new is None,
                totp_secret=None, epoch=cfg["epoch"] + 1)
     save(cfg)
-    print("Admin password reset to " + (f"the one you gave." if new else f"'{DEFAULT_PASSWORD}' (you must change it at next login)."))
+    print("Admin password reset" + ("." if new else " to the default; you must change it at next login."))
     print("Two-factor authentication was turned off and all sessions were signed out.")
 
 
@@ -409,11 +409,12 @@ if __name__ == "__main__":
     first = not os.path.exists(CONFIG)
     load()
     if first:
-        print(f"First install: sign in as admin / {DEFAULT_PASSWORD} (you will be asked to change it).")
+        print("First install: sign in as admin with the default password from the README (you will be asked to change it).")
     print(f"IttisalX FileServer {VERSION} ({WEBSITE}) serving {UPLOAD_DIR} on port {PORT}", flush=True)
     httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     if TLS_CERT and TLS_KEY:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.load_cert_chain(TLS_CERT, TLS_KEY)
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
         print("HTTPS enabled", flush=True)
