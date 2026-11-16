@@ -1,0 +1,83 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css"><script src="/static/common.js"></script><title>Files - IttisalX FileServer</title></head><body>
+<header><div class="bar">
+<a class="brand" href="/"><picture><source media="(prefers-color-scheme: dark)" srcset="/static/logo-sm-dark.svg"><img src="/static/logo-sm.svg" alt="IttisalX" width="28" height="28"></picture><span>IttisalX FileServer<small>Open source</small></span></a>
+<nav><a href="/" aria-current="page">Files</a><a href="/settings" >Settings</a></nav>
+<button onclick="logout()">Sign out</button></div></header>
+<main>
+<h1>Files</h1>
+<div class="drop" id="drop" tabindex="0" role="button">
+<strong>Drop files here</strong> or click to choose<div class="muted" id="limit"></div>
+<input type="file" id="pick" multiple hidden>
+<div class="bar-wrap" id="pw" hidden><div class="bar-fill" id="pb"></div></div>
+</div>
+<div class="msg" id="m" role="alert"></div>
+<p class="crumbs" id="crumbs"></p>
+<div class="card table-card"><table><thead><tr><th>Name</th><th class="n hide-s">Modified</th><th class="n">Size</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+</main><footer>IttisalX FileServer v{{version}} &middot; an IttisalX open-source project &middot; <a href="{{website}}" target="_blank" rel="noopener">ittisal.com</a></footer>
+<script>
+let cur = "", st = {};
+const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const join = (a, b) => a ? a + "/" + b : b;
+
+async function load(path) {
+  const d = await api("/api/files?path=" + encodeURIComponent(path));
+  cur = d.path;
+  const parts = cur ? cur.split("/") : [];
+  let acc = "", html = '<a href="#" data-p="">Files</a>';
+  for (const p of parts) { acc = join(acc, p); html += ' / <a href="#" data-p="' + esc(acc) + '">' + esc(p) + "</a>"; }
+  $("#crumbs").innerHTML = html;
+  $("#rows").innerHTML = d.items.length ? d.items.map(i => {
+    const full = join(cur, i.name), big = !i.dir && st.download_limit_mb && i.size > st.download_limit_mb * 1048576;
+    const date = new Date(i.mtime * 1000).toLocaleDateString();
+    if (i.dir) return '<tr><td class="name"><a href="#" data-p="' + esc(full) + '">&#128193; ' + esc(i.name) + '</a></td><td class="n hide-s">' + date + '</td><td class="n">&mdash;</td><td></td></tr>';
+    return '<tr><td class="name">' + (big ? esc(i.name) + ' <span class="muted">(over download limit)</span>' : '<a href="/download?path=' + encodeURIComponent(full) + '">' + esc(i.name) + "</a>") +
+      '</td><td class="n hide-s">' + date + '</td><td class="n">' + fmtSize(i.size) + '</td><td class="n"><button class="danger" data-del="' + esc(full) + '" data-n="' + esc(i.name) + '">Delete</button></td></tr>';
+  }).join("") : '<tr><td colspan="4" class="muted">No files here yet. Drop a file above to upload it.</td></tr>';
+}
+document.addEventListener("click", async e => {
+  const a = e.target.closest("[data-p]");
+  if (a) { e.preventDefault(); load(a.dataset.p); }
+  const d = e.target.closest("[data-del]");
+  if (d && confirm('Delete "' + d.dataset.n + '"? This cannot be undone.')) {
+    try { await api("/api/delete", {path: d.dataset.del}); load(cur); } catch (err) { say($("#m"), err.message); }
+  }
+});
+
+function send(file) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", "/upload?dir=" + encodeURIComponent(cur) + "&name=" + encodeURIComponent(file.name));
+    x.upload.onprogress = e => { if (e.lengthComputable) $("#pb").style.width = (e.loaded / e.total * 100) + "%"; };
+    x.onload = () => x.status === 200 ? resolve() : reject(new Error((JSON.parse(x.responseText || "{}")).error || "Upload failed."));
+    x.onerror = () => reject(new Error("Upload of " + file.name + " failed. Check your connection and try again."));
+    x.send(file);
+  });
+}
+async function upload(files) {
+  const limit = st.upload_limit_mb * 1048576;
+  $("#pw").hidden = false;
+  for (const f of files) {
+    if (limit && f.size > limit) { say($("#m"), f.name + " is larger than the " + st.upload_limit_mb + " MB upload limit."); continue; }
+    say($("#m"), "Uploading " + f.name + "…", true); $("#pb").style.width = "0";
+    try { await send(f); say($("#m"), "Uploaded " + f.name + ".", true); } catch (err) { say($("#m"), err.message); }
+  }
+  $("#pw").hidden = true; load(cur);
+}
+const drop = $("#drop"), pick = $("#pick");
+drop.onclick = () => pick.click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick.click(); } };
+pick.onchange = () => { upload([...pick.files]); pick.value = ""; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload([...e.dataTransfer.files]); };
+
+api("/api/state").then(s => {
+  st = s;
+  $("#limit").textContent = "Upload limit: " + (s.upload_limit_mb ? s.upload_limit_mb + " MB per file" : "none") + " · Download limit: " + (s.download_limit_mb ? s.download_limit_mb + " MB per file" : "none");
+  load("");
+});
+</script></body></html>

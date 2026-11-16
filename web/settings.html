@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css"><script src="/static/common.js"></script><script src="/static/qrcode.js"></script><title>Settings - IttisalX FileServer</title></head><body>
+<header><div class="bar">
+<a class="brand" href="/"><picture><source media="(prefers-color-scheme: dark)" srcset="/static/logo-sm-dark.svg"><img src="/static/logo-sm.svg" alt="IttisalX" width="28" height="28"></picture><span>IttisalX FileServer<small>Open source</small></span></a>
+<nav><a href="/" >Files</a><a href="/settings" aria-current="page">Settings</a></nav>
+<button onclick="logout()">Sign out</button></div></header>
+<main>
+<h1>Settings</h1>
+<div class="card" id="warn" hidden><strong>Change the default password to continue.</strong><div class="muted">The default password is public. Choose your own below.</div></div>
+
+<form class="card" id="pf"><h2>Password</h2><p class="muted">At least 8 characters.</p>
+<label for="cur">Current password</label><input id="cur" type="password" autocomplete="current-password" required>
+<label for="new">New password</label><input id="new" type="password" autocomplete="new-password" minlength="8" required>
+<div class="actions"><button class="primary">Change password</button><span class="msg" id="pm" role="alert"></span></div></form>
+
+<div class="card" id="tf"><h2>Two-factor authentication</h2>
+<p class="muted" id="tstate"></p>
+<div id="toff" hidden><button class="primary" id="tstart">Enable 2FA</button></div>
+<div id="tsetup" hidden>
+<p>Scan the QR code with an authenticator app (Google Authenticator, Authy, 1Password…), then enter the 6-digit code it shows.</p>
+<div id="tqr" class="qr" aria-label="QR code"></div><p class="muted">Can't scan? Enter this key manually:</p><code class="secret" id="tsecret"></code>
+<label for="tcode">6-digit code</label><input id="tcode" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+<div class="actions"><button class="primary" id="tconfirm">Confirm and enable</button></div></div>
+<div id="ton" hidden><label for="tpw">Password</label><input id="tpw" type="password" autocomplete="current-password">
+<div class="actions"><button class="danger" id="tdisable">Disable 2FA</button></div></div>
+<span class="msg" id="tm" role="alert"></span></div>
+
+<form class="card" id="lf"><h2>File size limits</h2><p class="muted">Per file, in MB. Use 0 for no limit.</p>
+<div class="row"><div><label for="up">Upload limit (MB)</label><input id="up" type="number" min="0" required></div>
+<div><label for="down">Download limit (MB)</label><input id="down" type="number" min="0" required></div></div>
+<div class="actions"><button class="primary">Save limits</button><span class="msg" id="lm" role="alert"></span></div></form>
+</main><footer>IttisalX FileServer v{{version}} &middot; an IttisalX open-source project &middot; <a href="{{website}}" target="_blank" rel="noopener">ittisal.com</a></footer>
+<script>
+function show(s) {
+  $("#warn").hidden = !s.must_change;
+  $("#tstate").textContent = s.totp_enabled ? "2FA is on. You'll be asked for a code at sign-in." : "2FA is off. Turn it on to require a code from your phone at sign-in.";
+  $("#toff").hidden = s.totp_enabled; $("#ton").hidden = !s.totp_enabled; $("#tsetup").hidden = true;
+  $("#up").value = s.upload_limit_mb; $("#down").value = s.download_limit_mb;
+  if (s.must_change) document.querySelectorAll("#tf button,#lf button,nav a:first-child").forEach(b => b.disabled = true);
+}
+const refresh = () => api("/api/state").then(show);
+refresh();
+$("#pf").onsubmit = async e => { e.preventDefault();
+  try { await api("/api/password", {current: $("#cur").value, new: $("#new").value}); say($("#pm"), "Password changed.", true); location.href = "/"; }
+  catch (err) { say($("#pm"), err.message); } };
+$("#tstart").onclick = async () => { try { const r = await api("/api/2fa/setup", {}); $("#tsecret").textContent = r.secret; const q = qrcode(0, "M"); q.addData(r.uri); q.make(); $("#tqr").innerHTML = q.createSvgTag({cellSize: 4, margin: 2, scalable: true}); $("#tsetup").hidden = false; $("#toff").hidden = true; $("#tcode").focus(); } catch (err) { say($("#tm"), err.message); } };
+$("#tconfirm").onclick = async () => { try { await api("/api/2fa/enable", {code: $("#tcode").value}); say($("#tm"), "2FA enabled.", true); refresh(); } catch (err) { say($("#tm"), err.message); } };
+$("#tdisable").onclick = async () => { try { await api("/api/2fa/disable", {password: $("#tpw").value}); $("#tpw").value = ""; say($("#tm"), "2FA disabled.", true); refresh(); } catch (err) { say($("#tm"), err.message); } };
+$("#lf").onsubmit = async e => { e.preventDefault();
+  try { await api("/api/limits", {upload_limit_mb: $("#up").value, download_limit_mb: $("#down").value}); say($("#lm"), "Limits saved.", true); }
+  catch (err) { say($("#lm"), err.message); } };
+</script></body></html>
